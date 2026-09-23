@@ -9,9 +9,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: -url=jdbc:postgresql://postgres:5432/wallet -user=app -password=${POSTGRES_PASSWORD:-app} -connectRetries=10 migrate
+    command: -url=jdbc:postgresql://postgres:5432/wallet -user=app -password=${POSTGRES_PASSWORD:-app} -locations=filesystem:/flyway/migrations -connectRetries=10 migrate
     volumes:
-      - ./db/migrations:/flyway/sql:ro
+      - ./db/migrations:/flyway/migrations:ro
   # One-shot job: create topics, then exit.
   kafka-init:
     image: apache/kafka:4.1.2
