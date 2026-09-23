@@ -30,6 +30,17 @@ and a fraud worker screens transfers in real time.
           [ ledger ]       [ fraud ]     [ notification ]
           PostgreSQL        Redis          WebSocket
 ```
+## Local setup
+
+```bash
+cp .env.example .env
+docker compose up -d
+```
+
+**Codespaces only:** after every Codespace start, run
+`sudo iptables-legacy -P FORWARD ACCEPT` before `docker compose up`.
+Without it, containers cannot reach each other. See `docs/difficulties.md`.
+
 
 ## Status
 
