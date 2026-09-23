@@ -33,3 +33,13 @@ Why: Kafka delivers at least once, so the same event can arrive twice.
 A deferred trigger rejects any unbalanced entry at COMMIT.
 Another trigger rejects UPDATE and DELETE on journal tables.
 Why: correctness is guaranteed by the database, not only by application code.
+
+## Topic names use dots only, never underscores
+Kafka metric names turn both "." and "_" into "_", so a.b and a_b would collide.
+Why: sticking to one separator avoids the clash Kafka warns about.
+
+## Services use the languages from the project blueprint
+gateway and wallet in Go, ledger in Java (Spring Boot), fraud in Python (FastAPI),
+notification in Node.js.
+Why: the blueprint shows several languages behind one platform, so the deployment
+side has to handle a different build and runtime for each.
