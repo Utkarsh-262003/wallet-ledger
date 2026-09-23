@@ -3,6 +3,7 @@ module github.com/Utkarsh-262003/wallet-ledger
 go 1.27.1
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/prometheus/client_golang v1.24.1
 	google.golang.org/grpc v1.84.0
