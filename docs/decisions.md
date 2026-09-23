@@ -54,3 +54,18 @@ Committing gen/ means Docker builds only need Go, not buf and the code generator
 
 ## Every RPC has its own Request and Response message
 Why: one response can gain fields later without touching any other call.
+
+## Ops endpoints on a separate port (9090)
+/healthz, /readyz and /metrics are served on OPS_PORT, not the main port.
+Why: they should never be reachable through the ingress, and probes keep working
+even if the main server is overloaded.
+
+## Kafka is not a readiness check for the wallet
+Why: if Kafka is down, transfers still succeed and wait in the outbox.
+A Kafka outage should not take payments down.
+
+## Graceful shutdown: 5s drain, then 20s cleanup
+On SIGTERM: /readyz returns 503, wait SHUTDOWN_DELAY (5s), stop servers, close connections.
+A timer force-exits after SHUTDOWN_DELAY + SHUTDOWN_TIMEOUT (25s total).
+Why: the wait lets Kubernetes remove the pod from its Service before we stop taking work,
+and 25s fits inside the default 30s terminationGracePeriodSeconds.
