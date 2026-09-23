@@ -3,6 +3,15 @@
 # Postgres: localhost:5432   Redis: localhost:6379   Kafka: localhost:29092
 
 services:
+  # One-shot job: apply database migrations, then exit.
+  flyway:
+    image: flyway/flyway:13.7.0-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: -url=jdbc:postgresql://postgres:5432/wallet -user=app -password=${POSTGRES_PASSWORD:-app} -connectRetries=10 migrate
+    volumes:
+      - ./db/migrations:/flyway/sql:ro
   # One-shot job: create topics, then exit.
   kafka-init:
     image: apache/kafka:4.1.2
