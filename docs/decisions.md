@@ -43,3 +43,14 @@ gateway and wallet in Go, ledger in Java (Spring Boot), fraud in Python (FastAPI
 notification in Node.js.
 Why: the blueprint shows several languages behind one platform, so the deployment
 side has to handle a different build and runtime for each.
+
+
+## Both Go services share one Go module at the repo root
+Why: both need the generated gRPC code. One go.mod lets them import it directly.
+
+## gRPC contract lives in proto/, generated with buf, generated code is committed
+Why: buf lints the contract and can detect breaking changes in CI.
+Committing gen/ means Docker builds only need Go, not buf and the code generators.
+
+## Every RPC has its own Request and Response message
+Why: one response can gain fields later without touching any other call.
