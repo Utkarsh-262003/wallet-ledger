@@ -11,7 +11,7 @@ and a fraud worker screens transfers in real time.
 |--------------|----------|--------------------------------------------------|
 | gateway      | Go       | Auth (JWT), rate limiting, REST API, calls wallet over gRPC |
 | wallet       | Go       | Balances, transfers, optimistic locking, outbox  |
-| ledger       | TBD      | Consumes events, writes double-entry journal     |
+| ledger       | TJava (Spring Boot)      | Consumes events, writes double-entry journal     |
 | fraud        | Python   | Consumes transfers, amount and velocity rules    |
 | notification | Node.js  | WebSocket push and webhook alerts                |
 
