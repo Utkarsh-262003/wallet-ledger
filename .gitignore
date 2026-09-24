@@ -32,3 +32,6 @@ go.work.sum
 # .vscode/
 # local secrets
 .env
+
+# Maven build output
+target/

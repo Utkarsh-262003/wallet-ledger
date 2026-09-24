@@ -103,3 +103,21 @@ to its own structs so API clients get numbers.
 Why: gRPC holds one long-lived connection. Behind a normal ClusterIP Service, all calls
 from one gateway pod would hit one wallet pod. With a headless Service
 (dns:///wallet-headless:50051) round_robin spreads calls across all wallet pods.
+
+
+## Ledger: Spring Boot 4, one listener, idempotent by event_id
+Reads transfers.completed and wallet.deposited as consumer group "ledger".
+Each event becomes one journal entry; event_id is UNIQUE, so a redelivered event is skipped.
+The offset is committed only after the database commit (at-least-once + dedupe = each event
+recorded exactly once).
+
+## Ledger error handling: bad messages to the DLQ, everything else retries forever
+Invalid events (not JSON, missing fields) go straight to <topic>.dlq.
+Any other failure, like PostgreSQL being down, retries with backoff up to 10s and never gives up.
+Why: sending a real transfer to the DLQ because the database blipped would lose it from the ledger.
+Tested: with PostgreSQL stopped, the ledger retried, the DLQ stayed untouched, and when the
+database returned it caught up and reconciliation showed zero differences.
+
+## Ledger reads the same DATABASE_URL as the Go services
+It converts postgres://user:pass@host/db into a JDBC URL itself.
+Why: one variable name for every service keeps the deployment config simple.
