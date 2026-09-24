@@ -35,3 +35,10 @@ go.work.sum
 
 # Maven build output
 target/
+
+# Python
+__pycache__/
+.venv/
+
+# Node
+node_modules/
