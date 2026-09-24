@@ -69,3 +69,37 @@ On SIGTERM: /readyz returns 503, wait SHUTDOWN_DELAY (5s), stop servers, close c
 A timer force-exits after SHUTDOWN_DELAY + SHUTDOWN_TIMEOUT (25s total).
 Why: the wait lets Kubernetes remove the pod from its Service before we stop taking work,
 and 25s fits inside the default 30s terminationGracePeriodSeconds.
+
+
+## kafka-go writer: hash balancer, all acks, 10ms batch timeout
+Events are keyed by wallet id, and the hash balancer sends one key to one partition,
+so events for a wallet stay in order. RequireAll waits for every replica to confirm.
+Why the 10ms batch timeout: kafka-go's default waits up to 1s to fill a batch,
+which would add up to a second to every event.
+
+## Outbox relay: SKIP LOCKED batches, at-least-once
+The relay locks a batch with FOR UPDATE SKIP LOCKED, publishes it, marks it sent, commits.
+Several wallet pods can run the relay at once without sending the same row twice at the
+same moment. A crash between publish and commit resends the batch, so consumers must dedupe.
+Tested: with Kafka stopped, transfers still succeed; events publish when Kafka returns.
+
+
+## Gateway: JWT (HS256, 15 min), bcrypt passwords, same error for unknown email and wrong password
+Why: short-lived tokens limit damage if one leaks; one error message stops attackers
+from finding out which emails are registered. Upgrade path: RS256 so other services
+can verify tokens with a public key instead of sharing the secret.
+
+## Rate limits in Redis, fixed window, fail open
+10/min per IP on login and register, 60/min per user on everything else.
+Counters live in Redis, so the limit is shared across all gateway pods.
+Why fail open: a Redis outage should not take the whole API down.
+Tested: with Redis stopped, all requests still succeed.
+
+## Gateway returns plain JSON numbers, not protobuf JSON
+protobuf's JSON format writes int64 as strings ("50000"). The gateway maps responses
+to its own structs so API clients get numbers.
+
+## gRPC client uses round_robin
+Why: gRPC holds one long-lived connection. Behind a normal ClusterIP Service, all calls
+from one gateway pod would hit one wallet pod. With a headless Service
+(dns:///wallet-headless:50051) round_robin spreads calls across all wallet pods.
