@@ -6,9 +6,11 @@ import (
 	"context"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/segmentio/kafka-go"
 	"google.golang.org/grpc"
 
 	walletv1 "github.com/Utkarsh-262003/wallet-ledger/gen/wallet/v1"
@@ -18,6 +20,7 @@ import (
 func main() {
 	log := platform.NewLogger("wallet")
 	dsn := platform.MustEnv("DATABASE_URL")
+	brokers := strings.Split(platform.MustEnv("KAFKA_BROKERS"), ",")
 	grpcPort := platform.EnvOr("GRPC_PORT", "50051")
 
 	// pgxpool.New checks the URL but does not connect yet.
@@ -30,9 +33,32 @@ func main() {
 
 	ops := platform.NewOps()
 	ops.AddCheck("postgres", pool.Ping)
+	// Kafka is deliberately NOT a readiness check. If Kafka is down,
+	// transfers still succeed and wait in the outbox until it comes back.
 	ops.Start(log)
 
-	store := &Store{pool: pool}
+	writer := &kafka.Writer{
+		Addr:                   kafka.TCP(brokers...),
+		Balancer:               &kafka.Hash{}, // same key (wallet id) -> same partition -> events stay in order per wallet
+		RequiredAcks:           kafka.RequireAll,
+		AllowAutoTopicCreation: false,
+		// kafka-go waits up to BatchTimeout (default 1s!) to fill a batch before sending.
+		// We hand it a full batch ourselves, so a short timeout keeps events fast.
+		BatchTimeout: 10 * time.Millisecond,
+		WriteTimeout: 10 * time.Second,
+	}
+
+	relay := &Relay{
+		pool:      pool,
+		writer:    writer,
+		log:       log,
+		poll:      platform.EnvDuration("OUTBOX_POLL_INTERVAL", 200*time.Millisecond),
+		batchSize: platform.EnvInt("OUTBOX_BATCH_SIZE", 100),
+		retention: platform.EnvDuration("OUTBOX_RETENTION", 7*24*time.Hour),
+	}
+	relay.Start()
+
+	store := &Store{pool: pool, maxRetries: platform.EnvInt("OPTIMISTIC_LOCK_RETRIES", 10)}
 	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(metricsInterceptor))
 	walletv1.RegisterWalletServiceServer(grpcServer, &walletServer{store: store, log: log})
 
@@ -52,8 +78,11 @@ func main() {
 	sig := platform.WaitForSignal()
 	platform.BeginShutdown(ops, log, sig)
 
-	// Stop in order: stop taking RPCs (finishing the ones in flight), then close connections.
+	// Stop in order: stop taking RPCs (finishing the ones in flight),
+	// let the relay finish its batch, then close connections.
 	grpcServer.GracefulStop()
+	relay.Stop()
+	_ = writer.Close()
 	pool.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
