@@ -44,4 +44,18 @@ Without it, containers cannot reach each other. See `docs/difficulties.md`.
 
 ## Status
 
-In progress. See `docs/` for design decisions and problems solved along the way.
+## Status
+
+All five services are complete, containerised, and tested end to end.
+
+- **Deploying or operating it:** start with [`docs/HANDOVER.md`](docs/HANDOVER.md)
+- **Why it's built this way:** [`docs/decisions.md`](docs/decisions.md)
+- **Problems hit and how they were fixed:** [`docs/difficulties.md`](docs/difficulties.md)
+
+Quick start:
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+cd scripts/smoke && npm install && node smoke.js
+```
