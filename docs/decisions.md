@@ -121,3 +121,20 @@ database returned it caught up and reconciliation showed zero differences.
 ## Ledger reads the same DATABASE_URL as the Go services
 It converts postgres://user:pass@host/db into a JDBC URL itself.
 Why: one variable name for every service keeps the deployment config simple.
+
+## Container images: multi-stage, non-root, minimal base
+Go services: static binary in gcr.io/distroless/static-debian12:nonroot (no shell, no package manager).
+Ledger: Maven build stage, then eclipse-temurin:21-jre-alpine as a non-root user.
+Fraud: python:3.13-slim as a non-root user. Notification: node:22-slim as the built-in node user.
+Why: build tools never reach production images; fewer packages means fewer CVEs;
+a compromised process is not root. Trade-off: no shell in the Go images, so debug with
+logs and /readyz instead of docker exec.
+
+## One Compose file runs the whole system
+Infrastructure, the two one-shot jobs (topics, migrations), then the five services.
+Services start only after migrations and topic creation finish successfully.
+
+## Smoke test as a post-deploy check
+scripts/smoke/smoke.js checks every /readyz, then signs up two users, moves money,
+and waits for the WebSocket notifications and the fraud alert. Exit code 0 or 1,
+so a CI/CD pipeline can run it after each deploy and roll back on failure.

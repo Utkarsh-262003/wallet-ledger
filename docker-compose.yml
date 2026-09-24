@@ -1,28 +1,18 @@
-# Local development stack.
-#   docker compose up -d
-# Postgres: localhost:5432   Redis: localhost:6379   Kafka: localhost:29092
+# The whole system on one machine.
+#
+#   cp .env.example .env        (first time only)
+#   docker compose up -d --build
+#   cd scripts/smoke && npm install && node smoke.js
+#
+# Public ports: gateway http://localhost:8080, notification ws://localhost:8084
+# Ops ports (/healthz, /readyz, /metrics): wallet 9090, gateway 9091, ledger 9095, fraud 9096, notification 9097
+
+x-app: &app
+  restart: unless-stopped
 
 services:
-  # One-shot job: apply database migrations, then exit.
-  flyway:
-    image: flyway/flyway:13.7.0-alpine
-    depends_on:
-      postgres:
-        condition: service_healthy
-    command: -url=jdbc:postgresql://postgres:5432/wallet -user=app -password=${POSTGRES_PASSWORD:-app} -locations=filesystem:/flyway/migrations -connectRetries=10 migrate
-    volumes:
-      - ./db/migrations:/flyway/migrations:ro
-  # One-shot job: create topics, then exit.
-  kafka-init:
-    image: apache/kafka:4.1.2
-    depends_on:
-      kafka:
-        condition: service_healthy
-    entrypoint: ["/bin/bash", "/scripts/create-topics.sh"]
-    environment:
-      BOOTSTRAP: kafka:9092
-    volumes:
-      - ./scripts/create-topics.sh:/scripts/create-topics.sh:ro
+  # ---------------- infrastructure ----------------
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -72,6 +62,116 @@ services:
       timeout: 10s
       retries: 12
       start_period: 20s
+
+  # One-shot job: create topics, then exit.
+  kafka-init:
+    image: apache/kafka:4.1.2
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/scripts/create-topics.sh"]
+    environment:
+      BOOTSTRAP: kafka:9092
+    volumes:
+      - ./scripts/create-topics.sh:/scripts/create-topics.sh:ro
+
+  # One-shot job: apply database migrations, then exit.
+  flyway:
+    image: flyway/flyway:13.7.0-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: -url=jdbc:postgresql://postgres:5432/wallet -user=app -password=${POSTGRES_PASSWORD:-app} -locations=filesystem:/flyway/migrations -connectRetries=10 migrate
+    volumes:
+      - ./db/migrations:/flyway/migrations:ro
+
+  # ---------------- application ----------------
+  # Every service starts only after migrations ran and topics exist.
+
+  wallet:
+    <<: *app
+    build:
+      context: .
+      dockerfile: services/wallet/Dockerfile
+    environment:
+      DATABASE_URL: postgres://app:${POSTGRES_PASSWORD:-app}@postgres:5432/wallet?sslmode=disable
+      KAFKA_BROKERS: kafka:9092
+    ports:
+      - "50051:50051"
+      - "9090:9090"
+    depends_on:
+      flyway:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+
+  gateway:
+    <<: *app
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    environment:
+      DATABASE_URL: postgres://app:${POSTGRES_PASSWORD:-app}@postgres:5432/wallet?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      WALLET_GRPC_ADDR: wallet:50051
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "8080:8080"
+      - "9091:9090"
+    depends_on:
+      flyway:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      wallet:
+        condition: service_started
+
+  ledger:
+    <<: *app
+    build:
+      context: services/ledger
+    environment:
+      DATABASE_URL: postgres://app:${POSTGRES_PASSWORD:-app}@postgres:5432/wallet?sslmode=disable
+      KAFKA_BROKERS: kafka:9092
+    ports:
+      - "9095:9090"
+    depends_on:
+      flyway:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+
+  fraud:
+    <<: *app
+    build:
+      context: services/fraud
+    environment:
+      REDIS_URL: redis://redis:6379
+      KAFKA_BROKERS: kafka:9092
+    ports:
+      - "9096:9090"
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+  notification:
+    <<: *app
+    build:
+      context: services/notification
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      REDIS_URL: redis://redis:6379
+      KAFKA_BROKERS: kafka:9092
+    ports:
+      - "8084:8084"
+      - "9097:9090"
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:
